@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/service/ec2"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -32,7 +33,7 @@ func qualifyName(name, origin string) string {
 	}
 }
 
-func getService(debug bool, profile string) *route53.Route53 {
+func getService(debug bool, profile string) (*route53.Route53, *ec2.EC2) {
 	config := aws.Config{}
 	if profile != "" {
 		config.Credentials = credentials.NewSharedCredentials("", profile)
@@ -42,7 +43,7 @@ func getService(debug bool, profile string) *route53.Route53 {
 	if debug {
 		config.LogLevel = aws.LogLevel(aws.LogDebug)
 	}
-	return route53.New(&config)
+	return route53.New(&config), ec2.New(&config)
 }
 
 func fatalIfErr(err error) {

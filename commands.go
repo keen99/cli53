@@ -3,11 +3,14 @@ package cli53
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/miekg/dns"
 )
@@ -501,4 +504,143 @@ func deleteRecord(name string, match string, rtype string, wait bool, identifier
 func purgeRecords(name string, wait bool) {
 	zone := lookupZone(name)
 	purgeZoneRecords(*zone.Id, wait)
+}
+
+type instancesArgs struct {
+	name     string
+	off      string
+	regions  string
+	wait     bool
+	ttl      int
+	match    string
+	internal bool
+	aRecord  bool
+	dryRun   bool
+}
+
+type InstanceRecord struct {
+	name  string
+	value string
+}
+
+func instances(args instancesArgs) {
+	zone := lookupZone(args.name)
+	log.Println("Getting DNS records")
+
+	describeInstancesInput := ec2.DescribeInstancesInput{}
+	if args.off == "" {
+		filter := ec2.Filter{
+			Name:   aws.String("instance-state-name"),
+			Values: []*string{aws.String("running")},
+		}
+		describeInstancesInput.Filters = []*ec2.Filter{&filter}
+	}
+
+	var re *regexp.Regexp
+	if args.match != "" {
+		re, err = regexp.Compile(args.match)
+		if err != nil {
+		}
+	}
+
+	output, err := ec2conn.DescribeInstances(&describeInstancesInput)
+	fatalIfErr(err)
+	var instances []*ec2.Instance
+	for _, r := range output.Reservations {
+		for _, i := range r.Instances {
+			for _, tag := range i.Tags {
+				// limit to instances with a Name tag
+				if *tag.Key == "Name" {
+					instances = append(instances, i)
+					continue
+				}
+			}
+		}
+	}
+	fmt.Println(instances)
+	suffix := fmt.Sprintf(".%s", zone.Name)
+	creates := []string{}
+	deletes := []string{}
+	// if args.match:
+	//     instances = (i for i in instances if re.search(args.match, i.tags['Name']))
+	// logging.info('Getting EC2 instances')
+	// instances_by_name = {}
+	// for inst in instances:
+	//     name = inst.tags.get('Name')
+	//     if not name:
+	//         continue
+
+	//     # strip domain suffix if present
+	//     if name.endswith(suffix):
+	//         name = name[0:-len(suffix)]
+	//     name = dns.name.from_text(name, zone.origin)
+
+	//     if name not in instances_by_name or inst.state == 'running':
+	//         # on duplicate named instances, running takes priority
+	//         instances_by_name[name] = inst
+
+	// if args.write_a_record:
+	//     rtype = dns.rdatatype.A
+	// else:
+	//     rtype = dns.rdatatype.CNAME
+
+	// for name, inst in instances_by_name.iteritems():
+	//     node = zone.get_node(name)
+	//     if node and node.rdatasets and node.rdatasets[0].rdtype != rtype:
+	//         # don't replace/update existing manually created records
+	//         logging.warning("Not overwriting record for %s as it appears to have been manually created" % name)
+	//         continue
+
+	//     newvalue = None
+	//     if inst.state == 'running':
+	//         if inst.public_dns_name and not args.internal:
+	//             newvalue = inst.ip_address if args.write_a_record else inst.public_dns_name
+	//         else:
+	//             newvalue = inst.private_ip_address if args.write_a_record else inst.private_dns_name
+	//     elif args.off == 'delete':
+	//         newvalue = None
+	//     elif args.off and name not in creates:
+	//         newvalue = args.off
+
+	//     if node:
+	//         if args.write_a_record:
+	//             oldvalue = node.rdatasets[0].items[0].address
+	//         else:
+	//             oldvalue = node.rdatasets[0].items[0].target.strip('.')
+	//         if oldvalue != newvalue:
+	//             if newvalue:
+	//                 logging.info('Updating record for %s: %s -> %s' % (name, oldvalue, newvalue))
+	//             else:
+	//                 logging.info('Deleting record for %s: %s' % (name, oldvalue))
+	//             deletes.append((name, node.rdatasets[0]))
+	//         else:
+	//             logging.debug('Record %s unchanged' % name)
+	//             continue
+	//     else:
+	//         logging.info('Creating record for %s: %s' % (name, newvalue))
+
+	//     if newvalue:
+	//         if args.write_a_record:
+	//             rd = _create_rdataset('A', args.ttl, [newvalue], None, None, None, None)
+	//         else:
+	//             rd = _create_rdataset('CNAME', args.ttl, [newvalue], None, None, None, None)
+	//         creates.append((name, rd))
+
+	// if not deletes and not creates:
+	//     logging.info('No changes')
+	//     return
+
+	// if args.dry_run:
+	//     logging.info('Dry run - not making changes')
+	//     return
+
+	// f = BindToR53Formatter()
+	// parts = f.replace_records(zone, creates, deletes)
+	// for xml in parts:
+	//     ret = retry(r53.change_rrsets, args.zone, xml)
+	//     if args.wait:
+	//         wait_for_sync(ret, r53)
+	//     else:
+	//         logging.info('Success')
+	//         pprint(ret.ChangeResourceRecordSetsResponse)
 }

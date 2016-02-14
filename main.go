@@ -2,11 +2,13 @@ package cli53
 
 import (
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/codegangsta/cli"
 )
 
 var r53 *route53.Route53
+var ec2conn *ec2.EC2
 var version string /* passed in by go build */
 
 // Entry point for cli53 application
@@ -35,7 +37,7 @@ func Main(args []string) int {
 			Usage:   "list domains",
 			Flags:   commonFlags,
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				listZones()
 			},
 		},
@@ -61,7 +63,7 @@ func Main(args []string) int {
 				},
 			),
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				if len(c.Args()) != 1 {
 					cli.ShowCommandHelp(c, "create")
 					exitCode = 1
@@ -81,7 +83,7 @@ func Main(args []string) int {
 				},
 			),
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				if len(c.Args()) != 1 {
 					cli.ShowCommandHelp(c, "delete")
 					exitCode = 1
@@ -115,13 +117,77 @@ func Main(args []string) int {
 				},
 			),
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				if len(c.Args()) != 1 {
 					cli.ShowCommandHelp(c, "import")
 					exitCode = 1
 					return
 				}
 				importBind(c.Args().First(), c.String("file"), c.Bool("wait"), c.Bool("editauth"), c.Bool("replace"))
+			},
+		},
+		{
+			Name:      "instances",
+			Usage:     "dynamically update your dns with instance names",
+			ArgsUsage: "zone",
+			Flags: append(commonFlags,
+				cli.StringFlag{
+					Name:  "off",
+					Value: "",
+					Usage: "if provided, then records for stopped instances will be updated. If set to \"delete\", they are removed, otherwise this option gives the dns name the CNAME should revert to",
+				},
+				cli.StringFlag{
+					Name:   "regions",
+					Value:  "us-east-1",
+					EnvVar: "EC2_REGION",
+					Usage:  "a comma-separated list of regions to check",
+				},
+				cli.BoolFlag{
+					Name:  "wait",
+					Usage: "wait for changes to become live",
+				},
+				cli.IntFlag{
+					Name:  "ttl, x",
+					Value: 60,
+					Usage: "resource record ttl",
+				},
+				cli.StringFlag{
+					Name:  "match",
+					Value: "",
+					Usage: "regular expression to select which Name tags to use",
+				},
+				cli.BoolFlag{
+					Name:  "internal, i",
+					Usage: "always use the internal hostname",
+				},
+				cli.BoolFlag{
+					Name:  "write-a-record, a",
+					Usage: "write an A record (IP) instead of CNAME",
+				},
+				cli.BoolFlag{
+					Name:  "dry-run, n",
+					Usage: "dry run - don't make any changes",
+				},
+			),
+			Action: func(c *cli.Context) {
+				r53, ec2conn = getService(c.Bool("debug"), c.String("profile"))
+				if len(c.Args()) != 1 {
+					cli.ShowCommandHelp(c, "instances")
+					exitCode = 1
+					return
+				}
+				args := instancesArgs{
+					name:     c.Args().First(),
+					off:      c.String("off"),
+					regions:  c.String("regions"),
+					wait:     c.Bool("wait"),
+					ttl:      c.Int("ttl"),
+					match:    c.String("match"),
+					internal: c.Bool("internal"),
+					aRecord:  c.Bool("write-a-record"),
+					dryRun:   c.Bool("dry-run"),
+				}
+				instances(args)
 			},
 		},
 		{
@@ -135,7 +201,7 @@ func Main(args []string) int {
 				},
 			),
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				if len(c.Args()) != 1 {
 					cli.ShowCommandHelp(c, "export")
 					exitCode = 1
@@ -188,7 +254,7 @@ func Main(args []string) int {
 				},
 			),
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				if len(c.Args()) != 2 {
 					cli.ShowCommandHelp(c, "rrcreate")
 					exitCode = 1
@@ -234,7 +300,7 @@ func Main(args []string) int {
 				},
 			),
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				if len(c.Args()) != 3 {
 					cli.ShowCommandHelp(c, "rrdelete")
 					exitCode = 1
@@ -258,7 +324,7 @@ func Main(args []string) int {
 				},
 			),
 			Action: func(c *cli.Context) {
-				r53 = getService(c.Bool("debug"), c.String("profile"))
+				r53, _ = getService(c.Bool("debug"), c.String("profile"))
 				if len(c.Args()) != 1 {
 					cli.ShowCommandHelp(c, "rrpurge")
 					exitCode = 1
